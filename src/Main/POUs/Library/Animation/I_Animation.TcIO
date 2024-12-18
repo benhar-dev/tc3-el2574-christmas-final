@@ -1,0 +1,49 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.13">
+  <Itf Name="I_Animation" Id="{20dcdc20-ac32-492a-b601-1441e2deba44}">
+    <Declaration><![CDATA[INTERFACE I_Animation
+]]></Declaration>
+    <Property Name="CurrentFrameImage" Id="{e24c7b4e-7a71-4359-b239-1442fc999968}">
+      <Declaration><![CDATA[PROPERTY PUBLIC CurrentFrameImage : ITcVnImage]]></Declaration>
+      <Get Name="Get" Id="{602f10dc-c391-4daf-becd-d9115a8a96f6}">
+        <Declaration><![CDATA[]]></Declaration>
+      </Get>
+    </Property>
+    <Property Name="CurrentFrameIndex" Id="{53cab9b4-1932-453a-afe7-fc7cc17ac78f}">
+      <Declaration><![CDATA[PROPERTY PUBLIC CurrentFrameIndex : UDINT]]></Declaration>
+      <Get Name="Get" Id="{930f5b1b-b15e-4210-9722-cfc0c12ff03b}">
+        <Declaration><![CDATA[]]></Declaration>
+      </Get>
+    </Property>
+    <Property Name="IsAtLastFrame" Id="{b15b8093-fe91-4059-b3da-e93cce440d9f}">
+      <Declaration><![CDATA[PROPERTY PUBLIC IsAtLastFrame : BOOL]]></Declaration>
+      <Get Name="Get" Id="{f53b825a-453a-4869-9bef-0e86731871e5}">
+        <Declaration><![CDATA[]]></Declaration>
+      </Get>
+    </Property>
+    <Method Name="MoveToStart" Id="{5c008f78-422d-4a7f-a63d-1603de9ef052}">
+      <Declaration><![CDATA[METHOD PUBLIC MoveToStart
+VAR_INPUT
+END_VAR
+]]></Declaration>
+    </Method>
+    <Property Name="TotalFrameCount" Id="{3b4e34b7-e50d-452b-8e69-f5e9639d6366}">
+      <Declaration><![CDATA[PROPERTY PUBLIC TotalFrameCount : UDINT]]></Declaration>
+      <Get Name="Get" Id="{90105280-94cf-4060-85a0-ed85bf9b298b}">
+        <Declaration><![CDATA[]]></Declaration>
+      </Get>
+    </Property>
+    <Method Name="TryMoveNext" Id="{5b3a2899-139f-4b18-9dbd-293e969b8679}">
+      <Declaration><![CDATA[METHOD PUBLIC TryMoveNext : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+    </Method>
+    <Method Name="TryMovePrevious" Id="{e2f36904-72a2-455f-a2e3-97c9d49193c5}">
+      <Declaration><![CDATA[METHOD PUBLIC TryMovePrevious : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+    </Method>
+  </Itf>
+</TcPlcObject>

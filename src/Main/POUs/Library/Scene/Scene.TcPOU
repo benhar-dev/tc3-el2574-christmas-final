@@ -1,0 +1,91 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.13">
+  <POU Name="Scene" Id="{7225b099-7528-450e-bf8c-900ea4290c6a}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK Scene
+VAR
+	sceneImage : ITcVnImage;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="AddLayer" Id="{5620606e-1178-4ce8-8031-a7298b1fd804}">
+      <Declaration><![CDATA[METHOD PUBLIC AddLayer
+VAR_INPUT
+	Source : ITcVnImage;
+END_VAR
+VAR
+	sourceHeight, currentHeight : UDINT;
+	sourceWidth, currentWidth : UDINT;
+	x, y : UDINT;
+	currentPixel : TcVnVector4_LREAL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF sceneImage = 0 THEN
+	RETURN;
+END_IF
+
+IF Source = 0 THEN 
+	RETURN;
+END_IF
+
+IF FAILED(Source.GetHeight(sourceHeight)) THEN
+	RETURN;
+END_IF;
+
+IF FAILED(sceneImage.GetHeight(currentHeight)) THEN
+	RETURN;
+END_IF;
+
+IF FAILED(Source.GetWidth(sourceWidth)) THEN
+	RETURN;
+END_IF;
+
+IF FAILED(sceneImage.GetWidth(currentWidth)) THEN
+	RETURN;
+END_IF;
+
+IF sourceHeight > currentHeight THEN
+	RETURN;
+END_IF
+
+IF sourceWidth > currentWidth THEN
+	RETURN;
+END_IF
+
+FOR y := 0 TO sourceHeight - 1 DO
+	FOR x := 0 TO sourceWidth - 1 DO
+		
+		IF SUCCEEDED(F_VN_GetPixel(Source, currentPixel, x, y, s_OK)) THEN
+			IF currentPixel[0] = 0 AND currentPixel[1] = 0 AND currentPixel[2] = 0 THEN
+				CONTINUE;
+			END_IF
+			F_VN_SetPixel(sceneImage, currentPixel,x,y,s_OK);	
+		END_IF
+	
+	END_FOR
+END_FOR]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="Image" Id="{ffb0372e-3cdc-4dd4-ad2a-3921e3cf5bc2}">
+      <Declaration><![CDATA[PROPERTY PUBLIC Image : ITcVnImage]]></Declaration>
+      <Get Name="Get" Id="{dd9b33f1-4392-43fa-8e8b-4c0eadb612de}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Image := sceneImage;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="Initalize" Id="{c00a008e-6642-4f28-8c8a-98c017433b6e}">
+      <Declaration><![CDATA[METHOD PUBLIC Initalize
+VAR_INPUT
+	Source : ITcVnImage;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[F_VN_CopyImage(Source, sceneImage, s_OK);]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,560 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.13">
+  <POU Name="MAIN" Id="{af29135f-2f20-4127-9f00-00637cac4dff}" SpecialFunc="None">
+    <Declaration><![CDATA[PROGRAM MAIN
+VAR
+	// demo triggers
+	startAnimation : BOOL := TRUE;
+	clear : BOOL := FALSE;
+	mode : (RANDOM, NAUGHTY, NICE, SPECIAL) := RANDOM; // defaults each time to random
+	
+	// animations
+	fireAnimation : SpriteSheetAnimationFrames(
+		SpriteSheetFilePath := 'C:\temp\FireplaceAndFire_2_3_6.png',
+		SpriteWidth := 32,
+		SpriteHeight := 32,
+		TotalSprites := 6,
+		Columns := 2,
+		Rows := 3
+	);
+	
+	idleAnimation : SpriteSheetAnimationFrames(
+		SpriteSheetFilePath := 'C:\temp\NaughtyOrNiceOutline_5_6_29.png',
+		SpriteWidth := 32,
+		SpriteHeight := 32,
+		TotalSprites := 29,
+		Columns := 5,
+		Rows := 6
+	);
+	
+	checkingList : SpriteSheetAnimationFrames(
+		SpriteSheetFilePath := 'C:\temp\CheckingElfTree_4_4_16.png',
+		SpriteWidth := 32,
+		SpriteHeight := 32,
+		TotalSprites := 16,
+		Columns := 4,
+		Rows := 4
+	);
+	
+	anyCoverAnimation : SpriteSheetAnimationFrames(
+		SpriteSheetFilePath := 'C:\temp\AnyCover_4_4_16.png',
+		SpriteWidth := 32,
+		SpriteHeight := 32,
+		TotalSprites := 16,
+		Columns := 4,
+		Rows := 4
+	);
+	
+	grinchAnimation : SpriteSheetAnimationFrames(
+		SpriteSheetFilePath := 'C:\temp\Grinch_4_4_15.png',
+		SpriteWidth := 32,
+		SpriteHeight := 32,
+		TotalSprites := 15,
+		Columns := 4,
+		Rows := 4
+	);
+	
+	nicePresentAnimation : SpriteSheetAnimationFrames(
+		SpriteSheetFilePath := 'C:\temp\NicePresent_4_5_19.png',
+		SpriteWidth := 32,
+		SpriteHeight := 32,
+		TotalSprites := 19,
+		Columns := 4,
+		Rows := 5
+	);
+	
+	specialAnimation : SpriteSheetAnimationFrames(
+		SpriteSheetFilePath := 'C:\temp\sp_3_4_12.png',
+		SpriteWidth := 32,
+		SpriteHeight := 32,
+		TotalSprites := 12,
+		Columns := 3,
+		Rows := 4
+	);
+
+	// matrix panels
+	matrix1 : MatrixImageSerializer(Height := 16, Width := 16, X := 16, Y := 16, FlipX := FALSE, FlipY := TRUE, Rotate := TRUE);
+	matrix2 : MatrixImageSerializer(Height := 16, Width := 16, X := 16, Y := 0, FlipX := FALSE, FlipY := TRUE, Rotate := TRUE); 
+	matrix3 : MatrixImageSerializer(Height := 16, Width := 16, X := 0, Y := 0, FlipX := FALSE, FlipY := TRUE, Rotate := TRUE); 
+	matrix4 : MatrixImageSerializer(Height := 16, Width := 16, X := 0, Y := 16, FlipX := FALSE, FlipY := TRUE, Rotate := TRUE); 
+	
+	// helpers
+	scene : Scene;
+	
+	// hardware
+	switch AT %I* : BOOL;
+	el2574_ch1 : EL2574_ExtendedMode(TotalPixels := 1024); // you need to pass in the total number of pixels connected to the EK2574
+	el2574_ch3 : EL2574_CommandMode(TotalPixels := 1024);
+	
+	// program variables
+	initialized : BOOL;
+	
+	animationState : (
+		IDLE_FWD, 
+		IDLE_FWD_WAIT, 
+		IDLE_BACKWARD, 
+		IDLE_BACKWARD_WAIT, 
+		CHECK_LIST, 
+		COVER, 
+		REVEAL_DECIDE, 
+		REVEAL, 
+		ACTUAL, 
+		END_DELAY, 
+		RESET
+	) := RESET;
+	
+	actualAnimation : I_Animation;
+	decision : USINT;
+	
+	ledState : (OFF, 
+		OFF_WAIT, 
+		IDLE_START, 
+		IDLE_SEND_NEXT, 
+		IDLE_WAIT, 
+		CHECKING_START, 
+		CHECKING_SEND_NEXT, 
+		CHECKING_WAIT, 
+		COVER_START,
+		COVER_SEND_NEXT, 
+		COVER_WAIT,
+		REVEAL_NAUGHTY_START, 
+		REVEAL_NAUGHTY_SEND_NEXT, 
+		REVEAL_NAUGHTY_WAIT,
+		REVEAL_NICE_START, 
+		REVEAL_NICE_SEND_NEXT, 
+		REVEAL_NICE_WAIT,
+		REVEAL_SPECIAL_START, 
+		REVEAL_SPECIAL_SEND_NEXT, 
+		REVEAL_SPECIAL_WAIT
+	) := OFF;
+	
+	animationRTrigger : R_TRIG;
+	switchRTrigger : R_TRIG;
+	triggerLedOff : R_TRIG;
+	triggerLedIdle : R_TRIG;
+	triggerLedChecking : R_TRIG;
+	triggerLedCover : R_TRIG;
+	triggerLedReveal : R_TRIG;
+	
+	// randomizer
+	randomizer : USINT := 1; // very basic randomizer
+	
+	// counters 
+	checklistCounter : INT; // this is just a simple setup to slow the animation down
+	
+	// timers
+	idleForwardTimer : TON := (PT:=T#1S);
+	idleBackwardTimer : TON := (PT:=T#2S);
+	revealDecideTimer : TON := (PT:=T#1S);
+	endDelayTimer : TON := (PT:=T#3S);
+	fastLedTickerTimer : TON := (PT:=T#50MS);
+	slowLedTickerTimer : TON := (PT:=T#200MS);
+	
+	// colors - variables so I can set them for testing. 	
+	IDLE_COLOR_1 : STRING(9) := '04eeff';
+	IDLE_COLOR_2 : STRING(9) := 'a206b1';
+	IDLE_COLOR_3 : STRING(9) := '04eeff';
+	
+	CHECKING_COLOR_1 : STRING(9) := '0314f8';
+	CHECKING_COLOR_2 : STRING(9) := '50aaa3';
+	CHECKING_COLOR_3 : STRING(9) := '0314f8';
+
+	COVER_COLOR_1 : STRING(9) := '09860f';
+	COVER_COLOR_2 : STRING(9) := 'FF0000';
+	COVER_COLOR_3 : STRING(9) := '09860f';
+	
+	REVEAL_NAUGHTY_COLOR_1 : STRING(9) := '09860f';
+	REVEAL_NAUGHTY_COLOR_2 : STRING(9) := '000000';
+	REVEAL_NAUGHTY_COLOR_3 : STRING(9) := '09860f';
+	
+	REVEAL_NICE_COLOR_1 : STRING(9) := 'FF0000';
+	REVEAL_NICE_COLOR_2 : STRING(9) := '222222';
+	REVEAL_NICE_COLOR_3 : STRING(9) := 'FF0000';
+	
+	REVEAL_SPECIAL_COLOR_1 : STRING(9) := 'f3ef16';
+	REVEAL_SPECIAL_COLOR_2 : STRING(9) := 'FF0000';
+	REVEAL_SPECIAL_COLOR_3 : STRING(9) := 'f3ef16';
+
+END_VAR
+VAR CONSTANT
+	LED_STRIP_START : UINT := 120;
+	LED_STRIP_LENGTH : UINT := 178;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[(*
+
+  _____ __  __ _____   ____  _____ _______       _   _ _______ _ 
+ |_   _|  \/  |  __ \ / __ \|  __ \__   __|/\   | \ | |__   __| |
+   | | | \  / | |__) | |  | | |__) | | |  /  \  |  \| |  | |  | |
+   | | | |\/| |  ___/| |  | |  _  /  | | / /\ \ | . ` |  | |  | |
+  _| |_| |  | | |    | |__| | | \ \  | |/ ____ \| |\  |  | |  |_|
+ |_____|_|  |_|_|     \____/|_|  \_\ |_/_/    \_\_| \_|  |_|  (_)
+ 
+Competition Clause: 
+
+During the Beckhoff Christmas coding competition involving the EL2574 
+LED controller terminal, if any Beckhoff subsidiaries use, borrow from, or are inspired
+by this code for their own competition entry, they must acknowledge the inspiration by 
+including the hashtag #codingbytes in any LinkedIn posts related to their competition entry. 
+This requirement is in effect until the conclusion OF the competition on 25th December 2024.
+
+*)
+
+IF NOT initialized THEN
+	// First setup the wiring of the units.  This must be in the order they are physically connected.
+	matrix1.ConnectTo(matrix2);
+	matrix2.ConnectTo(matrix3);
+	matrix3.ConnectTo(matrix4);
+	// that's initializing done!
+	initialized := TRUE;
+END_IF
+
+// we wait here until the animation source image is loaded.
+// i.e. we return, which prevents the program from progressing past this line.
+IF NOT specialAnimation.TryLoad() OR NOT fireAnimation.TryLoad() OR NOT idleAnimation.TryLoad() OR NOT checkingList.TryLoad() OR NOT anyCoverAnimation.TryLoad() OR NOT grinchAnimation.TryLoad() OR NOT nicePresentAnimation.TryLoad() THEN
+    RETURN;
+END_IF
+
+// basic clear trigger.  Set clear TRUE to clear the display
+IF clear AND_THEN el2574_ch1.TrySendClearAll() THEN
+	clear := FALSE;
+END_IF
+
+// if the startAnimation flag is triggered then force the state machine to RESET
+animationRTrigger(Clk:=startAnimation);
+IF animationRTrigger.Q THEN
+	animationState := RESET;
+END_IF
+
+// if the "check" switch is pulled then move to CHECK_LIST if the program is running in idle
+switchRTrigger(clk:=switch);
+IF startAnimation AND switchRTrigger.Q AND (animationState = IDLE_FWD OR animationState = IDLE_FWD_WAIT OR animationState = IDLE_BACKWARD OR animationState = IDLE_BACKWARD_WAIT) THEN
+	animationState := CHECK_LIST;
+	decision := randomizer;
+END_IF 
+
+// animation state machine.
+// this controls all of the image, animation and timinigs. 
+IF startAnimation  AND NOT el2574_ch1.IsBusy THEN 
+	
+	CASE animationState OF
+	
+		IDLE_FWD :
+			
+			scene.Initalize(fireAnimation.CurrentFrameImage);
+			scene.AddLayer(idleAnimation.CurrentFrameImage);
+			
+			IF NOT fireAnimation.TryMoveNext() THEN
+				fireAnimation.MoveToStart();
+			END_IF
+			
+			IF NOT idleAnimation.TryMoveNext() THEN
+				animationState := IDLE_FWD_WAIT;
+			END_IF
+			
+		IDLE_FWD_WAIT : 
+		
+			scene.Initalize(fireAnimation.CurrentFrameImage);
+			scene.AddLayer(idleAnimation.CurrentFrameImage);
+			
+			IF NOT fireAnimation.TryMoveNext() THEN
+				fireAnimation.MoveToStart();
+			END_IF
+		
+			IF idleForwardTimer.Q THEN
+				animationState := IDLE_BACKWARD;
+			END_IF
+
+		IDLE_BACKWARD :  
+		
+			scene.Initalize(fireAnimation.CurrentFrameImage);
+			scene.AddLayer(idleAnimation.CurrentFrameImage);
+			
+			IF NOT fireAnimation.TryMoveNext() THEN
+				fireAnimation.MoveToStart();
+			END_IF
+			
+			IF NOT idleAnimation.TryMovePrevious() THEN
+				animationState := IDLE_BACKWARD_WAIT;
+			END_IF	
+
+		IDLE_BACKWARD_WAIT : //	
+		
+			scene.Initalize(fireAnimation.CurrentFrameImage);
+			scene.AddLayer(idleAnimation.CurrentFrameImage);
+			
+			IF NOT fireAnimation.TryMoveNext() THEN
+				fireAnimation.MoveToStart();
+			END_IF
+		
+			IF idleBackwardTimer.Q THEN
+				animationState := IDLE_FWD;
+			END_IF
+			
+		CHECK_LIST : 
+		
+			scene.Initalize(checkingList.CurrentFrameImage);
+			
+			IF checklistCounter > 2 AND_THEN NOT checkingList.TryMoveNext() THEN
+				animationState := COVER;
+			END_IF
+			
+			IF checklistCounter > 2 THEN
+				checklistCounter := 0;
+			ELSE 
+				checklistCounter := checklistCounter + 1;
+			END_IF
+		
+		COVER : //
+		
+			scene.Initalize(checkingList.CurrentFrameImage);
+			scene.AddLayer(anyCoverAnimation.CurrentFrameImage);
+			
+			IF not anyCoverAnimation.TryMoveNext() THEN
+				animationState := REVEAL_DECIDE;
+			END_IF
+			
+		REVEAL_DECIDE : //
+		
+			IF revealDecideTimer.Q THEN
+				
+				// change mode to one of the two randoms.
+				IF mode = RANDOM THEN
+					IF decision > 5 THEN
+						mode := NAUGHTY;
+					ELSE
+						mode := NICE;
+					END_IF
+				END_IF
+				
+				IF mode = NAUGHTY THEN
+					actualAnimation := grinchAnimation;
+				ELSIF mode = NICE THEN
+					actualAnimation := nicePresentAnimation;
+				ELSIF mode = SPECIAL THEN
+					actualAnimation := specialAnimation;
+				END_IF
+
+				animationState := REVEAL;
+
+			END_IF
+		
+		REVEAL : //
+		
+			scene.Initalize(actualAnimation.CurrentFrameImage);
+			scene.AddLayer(anyCoverAnimation.CurrentFrameImage);
+			
+			IF NOT anyCoverAnimation.TryMovePrevious() THEN
+				animationState := ACTUAL;
+			END_IF
+		
+		ACTUAL : // 
+		
+			scene.Initalize(actualAnimation.CurrentFrameImage);
+			
+			IF NOT actualAnimation.TryMoveNext() THEN
+				animationState := END_DELAY;
+			END_IF
+			
+		END_DELAY : //
+		
+			IF endDelayTimer.Q THEN
+				animationState := RESET;
+			END_IF
+			
+		RESET : //
+		
+			idleAnimation.MoveToStart();
+			checkingList.MoveToStart();
+			anyCoverAnimation.MoveToStart();
+			grinchAnimation.MoveToStart();
+			nicePresentAnimation.MoveToStart();
+			animationState := IDLE_FWD;
+			mode := RANDOM;
+	
+	END_CASE
+	
+	matrix1.UpdateImage(scene.Image);
+	el2574_ch1.TrySendPixelsFromSerializer(matrix1);
+	
+END_IF
+
+// naughty, nice randomizer
+randomizer := randomizer + 1;
+IF randomizer > 10 THEN 
+	randomizer := 1;
+END_IF
+
+// timers
+idleForwardTimer(IN:=animationState=IDLE_FWD_WAIT);
+idleBackwardTimer(IN:=animationState=IDLE_BACKWARD_WAIT);
+revealDecideTimer(IN:=animationState=REVEAL_DECIDE);
+endDelayTimer(IN:=animationState=END_DELAY);
+fastLedTickerTimer(IN:=NOT fastLedTickerTimer.Q);
+slowLedTickerTimer(IN:=NOT slowLedTickerTimer.Q);
+
+// led state triggers
+triggerLedOff(CLK := animationState=RESET);
+IF triggerLedOff.Q THEN
+	ledState := OFF;
+END_IF
+
+triggerLedIdle(CLK := animationState=IDLE_FWD);
+IF triggerLedIdle.Q THEN
+	ledState := IDLE_START;
+END_IF
+
+triggerLedChecking(CLK := animationState=CHECK_LIST);
+IF triggerLedChecking.Q THEN
+	ledState := CHECKING_START;
+END_IF
+
+triggerLedCover(CLK := animationState=COVER);
+IF triggerLedCover.Q THEN
+	ledState := COVER_START;
+END_IF
+
+triggerLedReveal(CLK := animationState=ACTUAL);
+IF triggerLedReveal.Q THEN
+	IF mode = NAUGHTY THEN
+		ledState := REVEAL_NAUGHTY_START;
+	ELSIF mode = NICE THEN
+		ledState := REVEAL_NICE_START;
+	ELSIF mode = SPECIAL THEN
+		ledState := REVEAL_SPECIAL_START;
+	END_IF
+END_IF
+
+
+// led state machine
+CASE ledState OF
+	
+	OFF : //
+	
+		el2574_ch3.ClearAll();
+		el2574_ch3.SendAndUpdate();
+		ledState := OFF_WAIT;
+	
+	OFF_WAIT : // 
+	
+	IDLE_START : //
+	
+		el2574_ch3.ClearAll();
+		el2574_ch3.ColorGradient3Point(LED_STRIP_START, 180, IDLE_COLOR_1, IDLE_COLOR_2, IDLE_COLOR_3);
+		el2574_ch3.SendAndUpdate();
+		ledState := IDLE_SEND_NEXT;
+	
+	IDLE_SEND_NEXT : //
+	
+		el2574_ch3.RotateRight(LED_STRIP_START, 180, 1); 
+		el2574_ch3.SendAndUpdate();
+		ledState := IDLE_WAIT;
+		
+	IDLE_WAIT : //
+	
+		IF NOT el2574_ch3.IsBusy AND fastLedTickerTimer.Q THEN
+			ledState := IDLE_SEND_NEXT;
+		END_IF
+		
+	CHECKING_START : //
+	
+		el2574_ch3.ClearAll();
+		el2574_ch3.ColorGradient3Point(LED_STRIP_START, 180, CHECKING_COLOR_1, CHECKING_COLOR_2, CHECKING_COLOR_3);
+		ledState := CHECKING_SEND_NEXT;
+	
+	CHECKING_SEND_NEXT : //
+	
+		el2574_ch3.RotateRight(LED_STRIP_START, 180, 1); 
+		el2574_ch3.SendAndUpdate();
+		ledState := CHECKING_WAIT;
+	
+	CHECKING_WAIT : //
+	
+		IF NOT el2574_ch3.IsBusy THEN
+			ledState := CHECKING_SEND_NEXT;
+		END_IF
+		
+	COVER_START : //
+	
+		el2574_ch3.ClearAll();
+		el2574_ch3.ColorGradient3Point(LED_STRIP_START, 180, COVER_COLOR_1, COVER_COLOR_2, COVER_COLOR_3);
+		ledState := COVER_SEND_NEXT;
+	
+	COVER_SEND_NEXT : //
+	
+		el2574_ch3.RotateRight(LED_STRIP_START, 180, 1); 
+		el2574_ch3.SendAndUpdate();
+		ledState := COVER_WAIT;
+	
+	COVER_WAIT : //
+	
+		IF NOT el2574_ch3.IsBusy THEN
+			ledState := COVER_SEND_NEXT;
+		END_IF
+		
+	REVEAL_NAUGHTY_START : //
+	
+		el2574_ch3.ClearAll();
+		el2574_ch3.ColorGradient3Point(LED_STRIP_START, 180, REVEAL_NAUGHTY_COLOR_1, REVEAL_NAUGHTY_COLOR_2, REVEAL_NAUGHTY_COLOR_3);
+		ledState := REVEAL_NAUGHTY_SEND_NEXT;
+	
+	REVEAL_NAUGHTY_SEND_NEXT : //
+	
+		el2574_ch3.RotateRight(LED_STRIP_START, 180, 1); 
+		el2574_ch3.SendAndUpdate();
+		ledState := REVEAL_NAUGHTY_WAIT;
+	
+	REVEAL_NAUGHTY_WAIT : //
+	
+		IF NOT el2574_ch3.IsBusy THEN
+			ledState := REVEAL_NAUGHTY_SEND_NEXT;
+		END_IF
+		
+	REVEAL_NICE_START : //
+	
+		el2574_ch3.ClearAll();
+		el2574_ch3.ColorGradient3Point(LED_STRIP_START, 180, REVEAL_NICE_COLOR_1, REVEAL_NICE_COLOR_2, REVEAL_NICE_COLOR_3);
+		ledState := REVEAL_NICE_SEND_NEXT;
+	
+	REVEAL_NICE_SEND_NEXT : //
+	
+		el2574_ch3.RotateRight(LED_STRIP_START, 180, 1); 
+		el2574_ch3.SendAndUpdate();
+		ledState := REVEAL_NICE_WAIT;
+	
+	REVEAL_NICE_WAIT : //
+	
+		IF NOT el2574_ch3.IsBusy THEN
+			ledState := REVEAL_NICE_SEND_NEXT;
+		END_IF
+		
+	REVEAL_SPECIAL_START : //
+	
+		el2574_ch3.ClearAll();
+		el2574_ch3.ColorGradient3Point(LED_STRIP_START, 180, REVEAL_SPECIAL_COLOR_1, REVEAL_SPECIAL_COLOR_2, REVEAL_SPECIAL_COLOR_3);
+		ledState := REVEAL_SPECIAL_SEND_NEXT;
+	
+	REVEAL_SPECIAL_SEND_NEXT : //
+	
+		el2574_ch3.RotateRight(LED_STRIP_START, 180, 1); 
+		el2574_ch3.SendAndUpdate();
+		ledState := REVEAL_SPECIAL_WAIT;
+	
+	REVEAL_SPECIAL_WAIT : //
+	
+		IF NOT el2574_ch3.IsBusy THEN
+			ledState := REVEAL_SPECIAL_SEND_NEXT;
+		END_IF
+		
+END_CASE
+
+// cyclic call the terminal so that it can do it's job.
+el2574_ch1.CyclicCall();
+el2574_ch3.CyclicCall();
+
+// unit tests
+UnitTests();]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>
