@@ -64,7 +64,7 @@ VAR
 	);
 	
 	specialAnimation : SpriteSheetAnimationFrames(
-		SpriteSheetFilePath := 'C:\temp\sp_3_4_12.png',
+		SpriteSheetFilePath := 'C:\temp\Special_3_4_12.png',
 		SpriteWidth := 32,
 		SpriteHeight := 32,
 		TotalSprites := 12,
